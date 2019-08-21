@@ -2,12 +2,13 @@
 
 export TENSORPACK_DATASET='/root/dataset/tensorpack_data'
 
-python ssdnet.py \
+python train.py \
   --network 'ssdnetv2' \
-  --lr 0.5 \
-  --lr-ratio 0.004 \
-  --gpu 4,5,6,7 \
+  --lr 0.25 \
+  --lr-ratio 0.002 \
+  --gpu 0,1,2,3 \
   --data ~/dataset/imagenet \
-  --batch 1024 \
+  --batch 512 \
   --epoch 300 \
   --parallel 24 \
+  --min-crop 0.16

@@ -128,9 +128,7 @@ def LinearBottleneck(x, ich, och, kernel,
     if use_ab:
         out = AccuracyBoost('ab', out)
     out = DWConv('conv_d', out, kernel, padding, stride, w_init, activation)
-    out = Conv2D('conv_p', out, och, 1, activation=None)
-    with tf.variable_scope('conv_p'):
-        out = BatchNorm('bn', out)
+    out = Conv2D('conv_p', out, och, 1, activation=BNOnly)
     return out
 
 
@@ -154,9 +152,7 @@ def DownsampleBottleneck(x, ich, och, kernel,
     out_d = DWConv('conv_d', out_e, kernel, padding, stride, w_init, activation)
     out_m = DWConv('conv_m', out_e, kernel, padding, stride, w_init, activation)
     out = tf.concat([out_d, out_m], axis=-1)
-    out = Conv2D('conv_p', out, och, 1, activation=None)
-    with tf.variable_scope('conv_p'):
-        out = BatchNorm('bn', out)
+    out = Conv2D('conv_p', out, och, 1, activation=BNOnly)
     return out
 
 
@@ -193,7 +189,9 @@ def inception(x, ch, stride, t=3, swap_block=False, activation=None, use_ab=Fals
     # residual everywhere
     lch = x.get_shape().as_list()[-1]
     rch = out.get_shape().as_list()[-1]
-    if lch == rch or stride == 1:
+    # if lch != rch or stride != 1:
+    #     x = Conv2D('shortcut', x, rch, stride, strides=stride, activation=BNOnly)
+    if stride == 1:
         out = tf.add(out, x)
     return out
 
@@ -216,8 +214,8 @@ def get_logits(image, num_classes=1000):
             l = BNReLU(tf.concat([l, -l], axis=-1))
         l = MaxPooling('pool1', l, 2)
         # conv2
-        l = LinearBottleneck('conv2', l, 32, 32, 5, t=2, use_ab=True)
-        # l = l + LinearBottleneck('conv3', l, 24, 24, 5, t=2, use_ab=True)
+        l = LinearBottleneck('conv2', l, 48, 24, 5, t=1, use_ab=True)
+        l = l + LinearBottleneck('conv3', l, 24, 24, 5, t=2, use_ab=True)
 
         ch_all = [48, 72, 96]
         iters = [2, 4, 4]
@@ -239,7 +237,7 @@ def get_logits(image, num_classes=1000):
         l = tf.nn.relu(l)
         l = GlobalAvgPooling('poolf', l)
         fc = FullyConnected('fc', l, 1280, activation=BNReLU)
-        fc = Dropout(fc, keep_prob=0.8)
+        fc = Dropout(fc, keep_prob=0.9)
         logits = FullyConnected('linear', fc, num_classes, use_bias=True)
     return logits
 

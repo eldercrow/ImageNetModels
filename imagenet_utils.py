@@ -353,7 +353,6 @@ class ImageNetModel(ModelDesc):
             image = tf.transpose(image, [0, 3, 1, 2])
 
         logits = self.get_logits(image)
-        tf.nn.softmax(logits, name='prob')
         loss = ImageNetModel.compute_loss_and_error(
             logits, label,
             label_smoothing=self.label_smoothing,
@@ -389,6 +388,7 @@ class ImageNetModel(ModelDesc):
         lr = tf.get_variable('learning_rate', initializer=0.1, trainable=False)
         tf.summary.scalar('learning_rate-summary', lr)
         opt = tf.train.MomentumOptimizer(lr, 0.9, use_nesterov=True)
+        # opt = tf.train.RMSPropOptimizer(lr, 0.9, epsilon=1e-03)
         if self.accum_grad != 1:
             opt = AccumGradOptimizer(opt, self.accum_grad)
         return opt
