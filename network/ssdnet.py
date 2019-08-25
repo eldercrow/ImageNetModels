@@ -83,7 +83,10 @@ def AccuracyBoost(x):
     nch = x.get_shape().as_list()[-1]
     g = GlobalAvgPooling('gpool', x)
     W = tf.get_variable('W', shape=(nch,), initializer=tf.variance_scaling_initializer(2.0))
-    g = BatchNorm('bn', tf.multiply(g, W))
+    # g = BatchNorm('bn', tf.multiply(g, W))
+    b = tf.get_variable('b', shape=(nch,), initializer=tf.zeros_initializer())
+    g = tf.multiply(g, W)
+    g = tf.add(g, b)
     ab = tf.reshape(tf.nn.sigmoid(g), (-1, 1, 1, nch))
     return tf.multiply(x, ab, name='res')
 
@@ -110,11 +113,11 @@ def DWConv(x, kernel, padding='SAME', stride=1, w_init=None, activation=BNReLU, 
 
 
 @layer_register(log_shape=True)
-def LinearBottleneck(x, ich, och, kernel,
+def LinearBottleneck(x, dch, och, kernel,
                      padding='SAME',
                      stride=1,
                      activation=None,
-                     t=3,
+                     t=1,
                      use_ab=False,
                      w_init=None):
     '''
@@ -123,53 +126,35 @@ def LinearBottleneck(x, ich, och, kernel,
     if activation is None:
         activation = BNReLU if kernel > 3 else BNOnly
 
-    out = Conv2D('conv_e', x, int(ich*t), 1, activation=BNReLU)
-    if use_ab:
+    # expand
+    out = Conv2D('conv_e', x, dch, 1, activation=BNReLU)
+    # dw
+    outs = []
+    for ii in range(t):
+        outs.append(DWConv('conv_d{}'.format(ii), out, kernel, padding, stride, w_init, activation))
+    out = tf.concat(outs, axis=-1) if len(outs) > 1 else outs[0]
+    # se
+    if use_ab and activation == BNReLU:
         out = AccuracyBoost('ab', out)
-    out = DWConv('conv_d', out, kernel, padding, stride, w_init, activation)
+    # proj
     out = Conv2D('conv_p', out, och, 1, activation=BNOnly)
     return out
 
 
 @layer_register(log_shape=True)
-def DownsampleBottleneck(x, ich, och, kernel,
-                         padding='SAME',
-                         stride=2,
-                         activation=None,
-                         t=3,
-                         use_ab=False,
-                         w_init=None):
-    '''
-    downsample linear bottlenet.
-    '''
-    if activation is None:
-        activation = BNReLU if kernel > 3 else BNOnly
-
-    out_e = Conv2D('conv_e', x, ich*t, 1, activation=BNReLU)
-    if use_ab:
-        out_e = AccuracyBoost('ab', out_e)
-    out_d = DWConv('conv_d', out_e, kernel, padding, stride, w_init, activation)
-    out_m = DWConv('conv_m', out_e, kernel, padding, stride, w_init, activation)
-    out = tf.concat([out_d, out_m], axis=-1)
-    out = Conv2D('conv_p', out, och, 1, activation=BNOnly)
-    return out
-
-
-@layer_register(log_shape=True)
-def inception(x, ch, k, stride, t=3, swap_block=False, activation=None, use_ab=False):
+def inception(x, dch, och, k, stride, swap_block=False, activation=None, use_ab=False):
     '''
     ssdnet inception layer.
     '''
-    if stride == 1:
-        oi = LinearBottleneck('conv1', x, ch, ch, k, \
-                              stride=stride, t=t, activation=activation, use_ab=use_ab)
-    else:
-        oi = DownsampleBottleneck('conv1', x, ch//2, ch, 4, \
-                                  stride=stride, t=t, activation=activation, use_ab=use_ab)
+    oi = LinearBottleneck('conv1', \
+            x, dch//stride, och, k, \
+            stride=stride, t=stride, activation=activation, use_ab=use_ab)
     oi = tf.split(oi, 2, axis=-1)
     o1 = oi[0]
-    o2 = oi[1] + LinearBottleneck('conv2', oi[1], ch//2, ch//2, k, \
-                                  t=t, activation=activation, use_ab=False)
+    o2 = LinearBottleneck('conv2', \
+            oi[1], dch//2, och//2, k, \
+            t=1, activation=activation, use_ab=use_ab)
+    o2 = o2 + oi[1]
 
     if not swap_block:
         out = tf.concat([o1, o2], -1)
@@ -200,35 +185,44 @@ def get_logits(image, num_classes=1000):
 
         l = image #tf.transpose(image, perm=[0, 2, 3, 1])
         # conv1
-        l = Conv2D('conv1', l, 24, 4, strides=2, activation=None, padding='SAME')
+        l = Conv2D('conv1', l, 16, 4, strides=2, activation=None, padding='SAME')
         with tf.variable_scope('conv1'):
             l = BNReLU(tf.concat([l, -l], axis=-1))
         l = MaxPooling('pool1', l, 2)
         # conv2
-        l = LinearBottleneck('conv2', l, 24, 24, 5, t=3, use_ab=True)
-        # l = l + LinearBottleneck('conv3', l, 24, 24, 5, t=3, use_ab=False)
+        l = LinearBottleneck('conv2', l, 72, 24, 5, use_ab=False)
+        l = l + LinearBottleneck('conv3', l, 72, 24, 5, use_ab=True)
 
-        ch_all = [48, 72, 96, 96]
-        iters = [2, 4, 2, 2]
-        mults = [3, 4, 6, 6]
-        bsize = [3, 3, 0, 3]
-        strides = [2, 2, 2, 1]
+        ch_all = [48, 64, 64, 96, 96]
+        dch_all = [144, 256, 288, 512, 576]
+        iters = [2, 2, 2, 2, 2]
+        strides = [2, 2, 1, 2, 1]
 
         hlist = []
-        for ii, (ch, it, mu, bs, ss) in enumerate(zip(ch_all, iters, mults, bsize, strides)):
-            use_ab = (ii < 3)
+        for ii, (ch, dch, it, ss) in enumerate(zip(ch_all, dch_all, iters, strides)):
             for jj in range(it):
                 name = 'inc{}/{}'.format(ii, jj)
                 stride = ss if jj == 0 else 1
                 k = 3 if (jj < it // 2) else 5
                 swap_block = True if jj % 2 == 1 else False
-                l = inception(name, l, ch, k, stride, t=mu, swap_block=swap_block, use_ab=use_ab)
-            l = DropBlock('inc{}/drop'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=bs)
+                use_ab = (jj == it - 1)
+                l = inception(name, l, dch, ch, k, stride, swap_block=swap_block, use_ab=use_ab)
+            l = DropBlock('inc{}/drop'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=3)
 
-        l = Conv2D('convf', l, 96*6, 1, activation=BNReLU)
-        # l = BatchNorm('convf/bn', l)
-        # l = tf.nn.relu(l)
+        nch = dch_all[-1]
+        l = Conv2D('convf', l, nch, 1, activation=BNReLU)
         l = GlobalAvgPooling('poolf', l)
+
+        ### position sensitve fc ---
+        # hh, ww = l.get_shape().as_list()[1:3]
+        # l = tf.reshape(l, [-1, hh*ww, ch_all[-1]])
+        #
+        # ll = tf.split(l, hh*ww, axis=1)
+        # ll = [tf.layers.flatten(li) for li in ll]
+        # ll = [FullyConnected('psfc{:02d}'.format(ii), li, 24, activation=BNReLU) for ii, li in enumerate(ll)]
+        # l = tf.concat(ll, axis=-1)
+        ### --- position sensitve fc
+
         fc = FullyConnected('fc', l, 1280, activation=BNReLU)
         fc = Dropout(fc, keep_prob=0.8)
         logits = FullyConnected('linear', fc, num_classes, use_bias=True)

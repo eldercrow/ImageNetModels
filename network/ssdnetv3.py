@@ -226,7 +226,7 @@ def get_logits(image, num_classes=1000):
                 k = 3 if (jj < it // 2) else 5
                 swap_block = True if jj % 2 == 1 else False
                 l = inception(name, l, ch, k, stride, t=mu, swap_block=swap_block, use_ab=use_ab)
-            # l = DropBlock('inc{}/drop'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=bs)
+            l = DropBlock('inc{}/drop'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=bs)
 
         nch = ch_all[-1] * mults[-1]
         l = Conv2D('convf', l, nch, 1, activation=BNReLU)
