@@ -147,7 +147,7 @@ def inception(x, dch, och, k, stride, swap_block=False, activation=None, use_ab=
     ssdnet inception layer.
     '''
     oi = LinearBottleneck('conv1', \
-            x, dch//stride, och, k, \
+            x, dch//stride, och, k+(stride//2), \
             stride=stride, t=stride, activation=activation, use_ab=use_ab)
     oi = tf.split(oi, 2, axis=-1)
     o1 = oi[0]
@@ -190,24 +190,36 @@ def get_logits(image, num_classes=1000):
             l = BNReLU(tf.concat([l, -l], axis=-1))
         l = MaxPooling('pool1', l, 2)
         # conv2
-        l = LinearBottleneck('conv2', l, 72, 24, 5, use_ab=False)
-        l = l + LinearBottleneck('conv3', l, 72, 24, 5, use_ab=True)
+        l = LinearBottleneck('conv2', l, 64, 32, 3, use_ab=False)
+        l = l + LinearBottleneck('conv3', l, 80, 32, 5, use_ab=True)
 
-        ch_all = [48, 64, 64, 96, 96]
-        dch_all = [144, 256, 288, 512, 576]
-        iters = [2, 2, 2, 2, 2]
-        strides = [2, 2, 1, 2, 1]
+        ch_all = [48, 48, 64, 64, 64, 64, 96, 96]
+        dch_all = [144, 160, 288, 288, 320, 320, 576, 640]
+        kernels = [3, 5, 3, 3, 5, 5, 3, 5]
+        strides = [2, 1, 2, 1, 1, 1, 2, 1]
+        ab_mask = [0, 1, 0, 0, 0, 1, 0, 1]
+        drop_mask = [0, 1, 0, 0, 0, 1, 0, 1]
+        swap_mask = [0, 1, 0, 1, 0, 1, 0, 1]
 
-        hlist = []
-        for ii, (ch, dch, it, ss) in enumerate(zip(ch_all, dch_all, iters, strides)):
-            for jj in range(it):
-                name = 'inc{}/{}'.format(ii, jj)
-                stride = ss if jj == 0 else 1
-                k = 3 if (jj < it // 2) else 5
-                swap_block = True if jj % 2 == 1 else False
-                use_ab = (jj == it - 1)
-                l = inception(name, l, dch, ch, k, stride, swap_block=swap_block, use_ab=use_ab)
-            l = DropBlock('inc{}/drop'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=3)
+        params_all = [p for p in zip(ch_all, dch_all, kernels, strides, ab_mask, drop_mask, swap_mask)]
+
+        for ii, p in enumerate(params_all):
+            name = 'inc{}'.format(ii)
+            ch, dch, k, ss, ab, drop, swap = p
+            l = inception(name, l, dch, ch, k, ss, swap_block=swap, use_ab=ab)
+            if drop:
+                l = DropBlock('drop{}'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=3)
+        #
+        # hlist = []
+        # for ii, (ch, dch, it, ss) in enumerate(zip(ch_all, dch_all, iters, strides)):
+        #     for jj in range(it):
+        #         name = 'inc{}/{}'.format(ii, jj)
+        #         stride = ss if jj == 0 else 1
+        #         k = 3 if (jj < it // 2) else 5
+        #         swap_block = True if jj % 2 == 1 else False
+        #         use_ab = (jj == it - 1)
+        #         l = inception(name, l, dch, ch, k, stride, swap_block=swap_block, use_ab=use_ab)
+        #     l = DropBlock('inc{}/drop'.format(ii), l, keep_prob=dropblock_keep_prob, block_size=3)
 
         nch = dch_all[-1]
         l = Conv2D('convf', l, nch, 1, activation=BNReLU)
