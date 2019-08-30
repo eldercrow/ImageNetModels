@@ -190,12 +190,12 @@ def get_logits(image, num_classes=1000):
             l = BNReLU(tf.concat([l, -l], axis=-1))
         l = MaxPooling('pool1', l, 2)
         # conv2
-        l = LinearBottleneck('conv2', l, 72, 24, 5, use_ab=False)
+        l = LinearBottleneck('conv2', l, 48, 24, 5, use_ab=False)
         l = l + LinearBottleneck('conv3', l, 72, 24, 5, use_ab=True)
 
-        ch_all = [48, 64, 64, 96, 96]
-        dch_all = [144, 256, 288, 512, 576]
-        iters = [2, 2, 2, 2, 2]
+        ch_all = [48, 72, 72, 96, 96]
+        dch_all = [160, 288, 320, 576, 640]
+        iters = [2, 2, 2, 1, 1]
         strides = [2, 2, 1, 2, 1]
 
         hlist = []
@@ -203,7 +203,7 @@ def get_logits(image, num_classes=1000):
             for jj in range(it):
                 name = 'inc{}/{}'.format(ii, jj)
                 stride = ss if jj == 0 else 1
-                k = 3 if (jj < it // 2) else 5
+                k = 3 if (jj < it // 2 and it > 1) else 5
                 swap_block = True if jj % 2 == 1 else False
                 use_ab = (jj == it - 1)
                 l = inception(name, l, dch, ch, k, stride, swap_block=swap_block, use_ab=use_ab)

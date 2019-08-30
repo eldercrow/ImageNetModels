@@ -7,7 +7,11 @@ import math
 import numpy as np
 import os
 import cv2
+
+from memory_saving_gradients import gradients
 import tensorflow as tf
+import tensorflow.python.ops as ops
+ops.__dict__['gradients'] = memory_saving_gradients.gradients_memory
 
 from tensorpack import *
 from tensorpack.dataflow import imgaug
