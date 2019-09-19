@@ -8,10 +8,9 @@ import numpy as np
 import os
 import cv2
 
-from memory_saving_gradients import gradients
+# from memory_saving_gradients import gradients as memsave_gradients
 import tensorflow as tf
-import tensorflow.python.ops as ops
-ops.__dict__['gradients'] = memory_saving_gradients.gradients_memory
+# from tensorflow.python import ops as tfops
 
 from tensorpack import *
 from tensorpack.dataflow import imgaug
@@ -22,6 +21,12 @@ from tensorpack.utils.gpu import get_num_gpu
 
 from imagenet_utils import ImageNetModel, eval_classification, get_imagenet_dataflow
 
+# def gradients(ys, xs, grad_ys=None, **kwargs):
+#     tensors = ['tower0/inc3/conv2/conv_e/bn/output', 'tower0/inc6/conv2/conv_e/bn/output']
+#     return memsave_gradients(ys, xs, grad_ys, checkpoints=tensors, **kwargs)
+#
+# tfops.__dict__['gradients'] = gradients
+# tf.__dict__['gradients'] = gradients
 
 class Model(ImageNetModel):
     weight_decay = 4e-5
