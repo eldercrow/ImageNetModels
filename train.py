@@ -39,13 +39,13 @@ class Model(ImageNetModel):
         return self.logit_fn(image)
 
 
-def get_data(name, batch, min_crop=0.08):
+def get_data(name, batch, min_crop=0.08, target_shape=224):
     isTrain = (name == 'train')
 
     if isTrain:
         augmentors = [
             # use lighter augs if model is too small
-            imgaug.GoogleNetRandomCropAndResize(crop_area_fraction=(min_crop, 1.)),
+            imgaug.GoogleNetRandomCropAndResize(target_shape=target_shape, crop_area_fraction=(min_crop, 1.)),
             imgaug.RandomOrderAug(
                 [imgaug.BrightnessScale((0.6, 1.4), clip=False),
                  imgaug.Contrast((0.6, 1.4), clip=False),
@@ -63,9 +63,10 @@ def get_data(name, batch, min_crop=0.08):
             imgaug.Flip(horiz=True),
         ]
     else:
+        sz = round(target_shape * 8 / 7)
         augmentors = [
-            imgaug.ResizeShortestEdge(256, cv2.INTER_CUBIC),
-            imgaug.CenterCrop((224, 224)),
+            imgaug.ResizeShortestEdge(sz, cv2.INTER_CUBIC),
+            imgaug.CenterCrop((target_shape, target_shape)),
         ]
     return get_imagenet_dataflow(
         args.data, name, batch, augmentors, args.parallel)
@@ -75,8 +76,8 @@ def get_config(model, nr_tower):
     batch = TOTAL_BATCH_SIZE // nr_tower
 
     logger.info("Running on {} towers. Batch size per tower: {}".format(nr_tower, batch))
-    dataset_train = get_data('train', batch, args.min_crop)
-    dataset_val = get_data('val', batch, args.min_crop)
+    dataset_train = get_data('train', batch, args.min_crop, args.target_shape)
+    dataset_val = get_data('val', batch, args.min_crop, args.target_shape)
 
     # max_epoch = int(np.ceil(max_iter / base_step_size))
 
@@ -128,6 +129,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', help='ILSVRC dataset dir')
     parser.add_argument('--network', help='network name', type=str, default='ssdnet')
     parser.add_argument('--batch', type=int, default=1024, help='total batch size')
+    parser.add_argument('--target-shape', type=int, default=224, help='width and height')
     parser.add_argument('--min-crop', type=float, default=0.08, help='minimum crop size for augmentation')
     parser.add_argument('--epoch', type=int, default=300, help='total epoch size')
     parser.add_argument('--lr', type=float, default=0.5, help='initial learning rate')
@@ -149,6 +151,7 @@ if __name__ == '__main__':
 
     model = Model()
     model.set_logit_fn(get_logits)
+    model.image_shape = args.target_shape
 
     if args.eval:
         batch = 128    # something that can run on one gpu
@@ -158,7 +161,7 @@ if __name__ == '__main__':
         # manually build the graph with batch=1
         with TowerContext('', is_training=False):
             model.build_graph(
-                tf.placeholder(tf.float32, [1, 224, 224, 3], 'input'),
+                tf.placeholder(tf.float32, [1, args.target_shape, args.target_shape, 3], 'input'),
                 tf.placeholder(tf.int32, [1], 'label')
             )
         model_utils.describe_trainable_vars()

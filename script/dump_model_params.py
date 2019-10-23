@@ -70,7 +70,10 @@ if __name__ == '__main__':
                 found = True
                 break
         if found:
-            dic_to_dump[k] = v
+            if p == 'W:0' and v.shape[0] == 4 and v.shape[1] == 4:
+                print(k)
+                continue
+            dic_to_dump['siamrpn/backbone/'+k] = v
 
     # sparsity = _measure_sparsity(dic_to_dump)
     # print('Net sparsity = {}'.format(sparsity))
