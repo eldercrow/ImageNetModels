@@ -175,7 +175,7 @@ if __name__ == '__main__':
                     "as 1 flop because it can be executed in one instruction.")
     else:
         name = args.network
-        logger.set_logger_dir(os.path.join('train_log', name))
+        logger.set_logger_dir(os.path.join('checkpoints', name))
 
         nr_tower = max(get_num_gpu(), 1)
         config = get_config(model, nr_tower)
